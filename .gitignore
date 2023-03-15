@@ -1,0 +1,8 @@
+.DS_STORE
+__pycache__/
+pytaxes.egg-info
+
+.apikey
+data/
+reports/
+venv/
