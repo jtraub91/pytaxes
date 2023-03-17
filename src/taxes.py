@@ -6,6 +6,9 @@ import os
 import time
 import urllib.request
 from datetime import datetime
+from getpass import getpass
+
+from pypdf import PdfReader, PdfWriter
 
 
 log = logging.getLogger(__name__)
@@ -358,13 +361,13 @@ def create_consolidated_report(report_path: str):
             coin_history = json.load(ret)["data"]["history"]
             coin_histories[symbol] = coin_history
         timestamp = int(datetime.fromisoformat(row[0]).timestamp())
-        
+
         price_filter_search = filter(lambda h: h["timestamp"] < timestamp, coin_history)
         price = next(price_filter_search)["price"]
         while not price:
             # weird case where price = None
             price = next(price_filter_search)["price"]
-            
+
         row_prime = row[:3] + [price] + row[4:]
         rows_prime.append(row_prime)
     consolidated_rows = rows_prime
@@ -398,6 +401,9 @@ def create_consolidated_report(report_path: str):
 
 
 def calculate_pnl(report_path: str):
+    """
+    Calculate PNL and generate 8949.csv
+    """
     with open(os.path.join(report_path, "consolidated.csv")) as csv_file:
         reader = csv.reader(csv_file)
         rows = [row for row in reader]
@@ -443,7 +449,7 @@ def calculate_pnl(report_path: str):
                     cost_basis_pools[symbol].remove(hifo_element)
                     pnl_rows.append(
                         [
-                            f"{hifo_element[2]} {symbol}",
+                            f"{round(hifo_element[2], 8)} {symbol}",
                             hifo_element[1],
                             row[0],
                             hifo_element[2] * abs(total_cost) / abs(amount),
@@ -472,7 +478,7 @@ def calculate_pnl(report_path: str):
                             cost_basis_pools[symbol][i] = replacement_element
                     pnl_rows.append(
                         [
-                            f"{amount} {symbol}",
+                            f"{round(amount, 8)} {symbol}",
                             hifo_element[1],
                             row[0],
                             amount * spot_price,
@@ -484,7 +490,7 @@ def calculate_pnl(report_path: str):
                     cost_basis_pools[symbol].remove(hifo_element)
                     pnl_rows.append(
                         [
-                            f"{hifo_element[2]} {symbol}",
+                            f"{round(hifo_element[2], 8)} {symbol}",
                             hifo_element[1],
                             row[0],
                             hifo_element[2] * spot_price,
@@ -493,6 +499,8 @@ def calculate_pnl(report_path: str):
                             - (hifo_element[2] * hifo_element[3]),
                         ]
                     )
+
+    log.debug(f"cost basis pools remaining: {cost_basis_pools}")
 
     with open(os.path.join(report_path, "8949.csv"), "w") as csv_file:
         writer = csv.writer(csv_file)
@@ -516,10 +524,148 @@ def calculate_pnl(report_path: str):
     print(f"max unaccounted profit: ${max_unaccounted_profit}")
 
 
+def generate_pdf(csv_report_filename: str, report_path: str, tax_year: str = "2022"):
+    with open(csv_report_filename) as csv_file:
+        reader = csv.reader(csv_file)
+        pnl_rows = [row for row in reader]
+        pnl_rows = pnl_rows[1:]
+
+    name = input("Name(s) shown on return: ")
+    ssn = getpass("Social security number or taxpayer identification number: ")
+
+    pdf_reader = PdfReader("templates/f8949.pdf")
+
+    text_fields = pdf_reader.get_form_text_fields()
+    transaction_fields = {
+        key: value for key, value in text_fields.items() if key.startswith("f1")
+    }
+    transaction_fields.pop("f1_1[0]")
+    transaction_fields.pop("f1_2[0]")
+
+    totals_field_names = [
+        "f1_115[0]",
+        "f1_116[0]",
+        "f1_117[0]",
+        "f1_118[0]",
+        "f1_119[0]",
+    ]
+    for field in totals_field_names:
+        transaction_fields.pop(field)
+
+    # form transaction_rows_fields list which contain the field name corresponding
+    # to row for transaction in pdf table, e.g.
+    # [
+    #   ['f1_3[0]', 'f1_4[0]', 'f1_5[0]', 'f1_6[0]', 'f1_7[0]', 'f1_8[0]', 'f1_9[0]', 'f1_10[0]'],
+    #   ['f1_11[0]', 'f1_12[0]', 'f1_13[0]', 'f1_14[0]', 'f1_15[0]', 'f1_16[0]', 'f1_17[0]', 'f1_18[0]'],
+    #   ...
+    # ]
+    transaction_rows_fields = []
+    row_fields = []
+    for i, field in enumerate(transaction_fields, start=1):
+        row_fields.append(field)
+        if not i % 8:
+            transaction_rows_fields.append(row_fields)
+            row_fields = []
+
+    # fill pdf
+    pdf_writers = []  # multiple PDFs may be needed
+    pdf_writer = PdfWriter()
+    pdf_writer.add_page(pdf_reader.pages[0])
+    pdf_writer.update_page_form_field_values(
+        pdf_writer.pages[0],
+        {
+            "f1_1[0]": name,
+            "f1_2[0]": ssn,
+        },
+    )
+
+    tax_rows = [row for row in pnl_rows if row[2].startswith(tax_year)]
+    total_proceeds = 0
+    total_cost = 0
+    total_gain_loss = 0
+
+    row_index = 0
+    for row in tax_rows:
+        try:
+            tr_fields = transaction_rows_fields[row_index]
+        except IndexError as error:
+            log.debug(f"index error caught, {error}. new pdf to be filled")
+            pdf_writer.update_page_form_field_values(
+                pdf_writer.pages[0],
+                {
+                    "f1_115[0]": total_proceeds,
+                    "f1_116[0]": total_cost,
+                    "f1_119[0]": total_gain_loss,
+                },
+            )
+            pdf_writers.append(pdf_writer)
+
+            total_proceeds = 0
+            total_cost = 0
+            total_gain_loss = 0
+
+            row_index = 0
+
+            pdf_writer = PdfWriter()
+            pdf_writer.add_page(pdf_reader.pages[0])
+            pdf_writer.update_page_form_field_values(
+                pdf_writer.pages[0],
+                {
+                    "f1_1[0]": name,
+                    "f1_2[0]": ssn,
+                },
+            )
+
+            tr_fields = transaction_rows_fields[row_index]
+
+        date_acquired = datetime.fromisoformat(row[1]).strftime("%m/%d/%y")
+        date_sold = datetime.fromisoformat(row[2]).strftime("%m/%d/%y")
+        proceeds = round(float(row[3]))
+        cost = round(float(row[4]))
+        pdf_writer.update_page_form_field_values(
+            pdf_writer.pages[0],
+            {
+                tr_fields[0]: row[0],
+                tr_fields[1]: date_acquired,
+                tr_fields[2]: date_sold,
+                tr_fields[3]: proceeds,
+                tr_fields[4]: cost,
+                tr_fields[7]: proceeds - cost,
+            },
+        )
+        total_proceeds += proceeds
+        total_cost += cost
+        total_gain_loss += proceeds - cost
+        row_index += 1
+
+    pdf_writer.update_page_form_field_values(
+        pdf_writer.pages[0],
+        {
+            "f1_115[0]": total_proceeds,
+            "f1_116[0]": total_cost,
+            "f1_119[0]": total_gain_loss,
+        },
+    )
+    pdf_writers.append(pdf_writer)
+
+    for i, pdf_writer in enumerate(pdf_writers):
+        with open(os.path.join(report_path, f"f8949_{i}.pdf"), "wb") as pdf_file:
+            pdf_writer.write(pdf_file)
+    log.info(f"8949_i.pdf reports generated in {report_path}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pnl", action="store_true", help="calculate pnl")
+    parser.add_argument(
+        "--no-pdf",
+        default=False,
+        action="store_true",
+        help="don't output pdf in addition to csv when calculating --pnl",
+    )
+
     args = parser.parse_args()
+
     report_subdir = f"reports/{int(1000 * time.time())}"
     if not os.path.exists(report_subdir):
         os.makedirs(report_subdir)
@@ -536,6 +682,8 @@ def main():
     create_consolidated_report(report_subdir)
     if args.pnl:
         calculate_pnl(report_subdir)
+        if not args.no_pdf:
+            generate_pdf(os.path.join(report_subdir, "8949.csv"), report_subdir)
 
 
 if __name__ == "__main__":
