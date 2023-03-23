@@ -518,6 +518,11 @@ def calculate_pnl(report_path: str):
 
     pnl = 0
     for row in pnl_rows:
+        if row[2].startswith("2021"):
+            pnl += row[-1]
+    print(f"2021 Gain/Loss: ${pnl}")
+    pnl = 0
+    for row in pnl_rows:
         if row[2].startswith("2022"):
             pnl += row[-1]
     print(f"2022 Gain/Loss: ${pnl}")
@@ -672,8 +677,10 @@ def main():
 
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
     fh = logging.FileHandler(os.path.join(report_subdir, "pytaxes.log"))
+    fh.setLevel(logging.DEBUG)
     fh.setFormatter(formatter)
     sh = logging.StreamHandler()
+    sh.setLevel(logging.WARNING)
     sh.setFormatter(formatter)
     log.setLevel(logging.DEBUG)
     log.addHandler(fh)
