@@ -31,10 +31,10 @@ def create_consolidated_report(report_path: str):
     ]
 
     # Coinbase
-    with open("data/Coinbase-alltime-transactions-2023-02-28.csv") as csv_file:
+    with open("data/coinbase-alltime-040924.csv") as csv_file:
         reader = csv.reader(csv_file)
         rows = [row for row in reader]
-        rows = rows[7:]
+        rows = rows[3:]
     coinbase_reformatted_rows = [
         row + ["Coinbase"]
         for row in rows
@@ -72,7 +72,7 @@ def create_consolidated_report(report_path: str):
         ]
     ]
     coinbase_reformatted_rows = [
-        [datetime.strptime(row[0], "%Y-%m-%dT%H:%M:%SZ").isoformat()] + row[1:]
+        [datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S UTC").isoformat()] + row[1:]
         for row in coinbase_reformatted_rows
     ]
     rows_prime = []
@@ -235,12 +235,16 @@ def create_consolidated_report(report_path: str):
 
     KRAKEN_ASSET_CODE_MAP = {
         "XXBT": "BTC",
+        "BTC": "BTC",
         "XETH": "ETH",
+        "ETH": "ETH",
         "XXMR": "XMR",
+        "XMR": "XMR",
         "SOL": "SOL",
         "ADA": "ADA",
         "LTC": "LTC",
         "XXDG": "DOGE",
+        "DOGE": "DOGE",
         "ATOM": "ATOM",
         "DOT": "DOT",
         "MATIC": "MATIC",
@@ -248,9 +252,10 @@ def create_consolidated_report(report_path: str):
         "APE": "APE",
         "BCH": "BCH",
         "UST": "UST",
+        "USD": "USD",
     }
     # kraken
-    with open("data/kraken-ledgers-alltime.csv") as csv_file:
+    with open("data/kraken-ledger-alltime-040924.csv") as csv_file:
         reader = csv.reader(csv_file)
         rows = [row for row in reader]
     kraken_trade_rows = [
@@ -259,7 +264,7 @@ def create_consolidated_report(report_path: str):
         if row[3] == "trade" and row[6] not in ["ZUSD", "USDT", "LUNA2"]
     ]
     kraken_reformatted_rows = [
-        [row[2], KRAKEN_ASSET_CODE_MAP[row[6]], row[7], "", "", "Kraken"]
+        [row[2], KRAKEN_ASSET_CODE_MAP[row[6]], row[8], "", "", "Kraken"]
         for row in kraken_trade_rows
     ]
     kraken_reformatted_rows = [
@@ -267,7 +272,7 @@ def create_consolidated_report(report_path: str):
         for row in kraken_reformatted_rows
     ]
 
-    with open("data/uphold-transaction-history-031423.csv") as csv_file:
+    with open("data/uphold-transactions-040924.csv") as csv_file:
         reader = csv.reader(csv_file)
         rows = [row for row in reader]
         rows = rows[1:]
@@ -346,6 +351,8 @@ def create_consolidated_report(report_path: str):
         else:
             if symbol == "LUNA":
                 symbol_prime = "WLUNA"
+            elif symbol == "USD": # hack
+                symbol_prime == "USDC"
             else:
                 symbol_prime = symbol
             coin_data = next(filter(lambda c: c["symbol"] == symbol_prime, coins))
@@ -376,7 +383,10 @@ def create_consolidated_report(report_path: str):
     rows_prime = []
     for row in consolidated_rows:
         if not row[4] and row[3]:
-            row_prime = row[:4] + [float(row[2]) * float(row[3])] + row[5:]
+            try:
+                row_prime = row[:4] + [float(row[2]) * float(row[3])] + row[5:]
+            except ValueError:
+                import ipdb; ipdb.set_trace()
             rows_prime.append(row_prime)
         else:
             rows_prime.append(row)
@@ -526,10 +536,15 @@ def calculate_pnl(report_path: str):
         if row[2].startswith("2022"):
             pnl += row[-1]
     print(f"2022 Gain/Loss: ${pnl}")
+    pnl = 0
+    for row in pnl_rows:
+        if row[2].startswith("2023"):
+            pnl += row[-1]
+    print(f"2023 Gain/Loss: ${pnl}")
     print(f"max unaccounted profit: ${max_unaccounted_profit}")
 
 
-def generate_pdf(csv_report_filename: str, report_path: str, tax_year: str = "2022"):
+def generate_pdf(csv_report_filename: str, report_path: str, tax_year: str = "2023"):
     with open(csv_report_filename) as csv_file:
         reader = csv.reader(csv_file)
         pnl_rows = [row for row in reader]

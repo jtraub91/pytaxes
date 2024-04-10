@@ -5,4 +5,5 @@ pytaxes.egg-info
 .apikey
 data/
 reports/
+build/
 venv/
