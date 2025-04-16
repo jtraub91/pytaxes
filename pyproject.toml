@@ -7,6 +7,12 @@ name = "pytaxes"
 version = "0.0.1"
 authors = [{name = "Jason Traub", email = "jtraub91@gmail.com"}]
 requires-python = ">=3.8"
+dependencies = [
+    "pypdf==3.5.2",
+]
 
 [project.scripts]
 taxes = "taxes:main"
+
+[project.optional-dependencies]
+dev = ["ipdb"]

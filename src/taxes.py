@@ -14,6 +14,38 @@ from pypdf import PdfReader, PdfWriter
 log = logging.getLogger(__name__)
 
 
+COINS = [
+    "BTC",
+    "BTG",
+    "HBAR",
+    "XRP",
+    "BAT",
+    "LTC",
+    "BCH",
+    "ETC",
+    "ETH",
+    "SHIB",
+    "DOGE",
+    "ADA",
+    "ATOM",
+    "SOL",
+    "DOT",
+    "MATIC",
+    "FIL",
+    "LINK",
+    "ZEC",
+    "XMR",
+    "LUNA",
+    "APE",
+    "UST",
+    "USD",
+    "USDC",
+    "DAI",
+    "LUNA",
+    "WLUNA",
+]
+
+
 def create_consolidated_report(report_path: str):
     # BlockFi
     with open("data/blockfi_transaction_report_all.csv") as csv_file:
@@ -31,7 +63,7 @@ def create_consolidated_report(report_path: str):
     ]
 
     # Coinbase
-    with open("data/coinbase-alltime-040924.csv") as csv_file:
+    with open("data/coinbase-01012015-12312024.csv") as csv_file:
         reader = csv.reader(csv_file)
         rows = [row for row in reader]
         rows = rows[3:]
@@ -330,7 +362,11 @@ def create_consolidated_report(report_path: str):
         apikey = apikey_file.read()
     headers = {"x-access-token": apikey}
 
-    req = urllib.request.Request(baseurl + "/coins?limit=5000", headers=headers)
+    coin_query_str = ""
+    for c in COINS:
+        coin_query_str += f"symbols[]={c}&"
+    coin_query_str = coin_query_str[:-1]
+    req = urllib.request.Request(baseurl + "/coins?" + coin_query_str, headers=headers)
     ret = urllib.request.urlopen(req)
 
     coins = json.load(ret)["data"]["coins"]
@@ -349,13 +385,13 @@ def create_consolidated_report(report_path: str):
         if coin_uuids.get(symbol):
             coin_uuid = coin_uuids.get(symbol)
         else:
-            if symbol == "LUNA":
-                symbol_prime = "WLUNA"
-            elif symbol == "USD": # hack
-                symbol_prime == "USDC"
+            if symbol == "USD": # hack
+                symbol_prime = "USDC"
             else:
                 symbol_prime = symbol
-            coin_data = next(filter(lambda c: c["symbol"] == symbol_prime, coins))
+            coin_data = next(filter(lambda c: c["symbol"] == symbol_prime, coins), None)
+            if not coin_data:
+                raise ValueError(f"{symbol_prime} not found in list of coins from coinranking")
             coin_uuid = coin_data["uuid"]
             coin_uuids[symbol] = coin_uuid
         if coin_histories.get(symbol):
@@ -373,7 +409,11 @@ def create_consolidated_report(report_path: str):
         price = next(price_filter_search)["price"]
         while not price:
             # weird case where price = None
-            price = next(price_filter_search)["price"]
+            try:
+                price = next(price_filter_search)["price"]
+            except StopIteration:
+                price = 0
+                break
 
         row_prime = row[:3] + [price] + row[4:]
         rows_prime.append(row_prime)
@@ -382,7 +422,7 @@ def create_consolidated_report(report_path: str):
     # loop thru rows calculate total cost
     rows_prime = []
     for row in consolidated_rows:
-        if not row[4] and row[3]:
+        if not row[4]:
             try:
                 row_prime = row[:4] + [float(row[2]) * float(row[3])] + row[5:]
             except ValueError:
@@ -541,10 +581,15 @@ def calculate_pnl(report_path: str):
         if row[2].startswith("2023"):
             pnl += row[-1]
     print(f"2023 Gain/Loss: ${pnl}")
+    pnl = 0
+    for row in pnl_rows:
+        if row[2].startswith("2024"):
+            pnl += row[-1]
+    print(f"2024 Gain/Loss: ${pnl}")
     print(f"max unaccounted profit: ${max_unaccounted_profit}")
 
 
-def generate_pdf(csv_report_filename: str, report_path: str, tax_year: str = "2023"):
+def generate_pdf(csv_report_filename: str, report_path: str, tax_year: str = "2024"):
     with open(csv_report_filename) as csv_file:
         reader = csv.reader(csv_file)
         pnl_rows = [row for row in reader]
