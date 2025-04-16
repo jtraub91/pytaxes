@@ -43,6 +43,7 @@ COINS = [
     "DAI",
     "LUNA",
     "WLUNA",
+    "EOS",
 ]
 
 
@@ -589,7 +590,7 @@ def calculate_pnl(report_path: str):
     print(f"max unaccounted profit: ${max_unaccounted_profit}")
 
 
-def generate_pdf(csv_report_filename: str, report_path: str, tax_year: str = "2024"):
+def generate_pdf(csv_report_filename: str, report_path: str, tax_year: str = "2023"):
     with open(csv_report_filename) as csv_file:
         reader = csv.reader(csv_file)
         pnl_rows = [row for row in reader]
